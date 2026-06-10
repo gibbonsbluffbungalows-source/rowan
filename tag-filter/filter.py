@@ -26,12 +26,13 @@ HA_URL = "http://host.docker.internal:8123"
 TOKEN_FILE = Path("/ha_token")
 LOG_FILE = Path("/data/tags.log")
 
-TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT|MORNING_GREETING)\s*:\s*([^\]\[]*?)\s*\]", re.I)
+TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT|MORNING_GREETING|LANGUAGE)\s*:\s*([^\]\[]*?)\s*\]", re.I)
 
 EVENT_FOR_TAG = {
     "GUEST_SUMMARY": "rowan_guest_summary",
     "OPT_OUT": "rowan_opt_out",
     "MORNING_GREETING": "rowan_morning_greeting_pref",
+    "LANGUAGE": "rowan_language",
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

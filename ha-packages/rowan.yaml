@@ -208,6 +208,24 @@ automation:
                 data:
                   option: first_wake
 
+  # Guest asked Rowan to switch language (the model emits [LANGUAGE: es|en];
+  # the tag filter fires this event). Flipping the satellite's assistant
+  # select swaps the whole pipeline — Spanish STT, prompt cue, and the
+  # em_alex Kokoro voice — starting with the next wake word.
+  - alias: Rowan language switch
+    id: rowan_language_switch
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: rowan_language
+    actions:
+      - action: select.select_option
+        target:
+          entity_id: select.rowan_cliffside_assistant
+        data:
+          option: >-
+            {{ 'Rowan ES' if trigger.event.data.value | lower in ['es', 'spanish', 'español', 'espanol'] else 'Rowan' }}
+
   - alias: Rowan new guest reset actions
     id: rowan_new_guest_reset_actions
     triggers:
@@ -225,3 +243,8 @@ automation:
           entity_id: input_select.rowan_greeting_mode
         data:
           option: first_wake
+      - action: select.select_option
+        target:
+          entity_id: select.rowan_cliffside_assistant
+        data:
+          option: Rowan

@@ -84,7 +84,13 @@ template:
             {% set w = 'weather.forecast_cliffside_bungalow' %}
             {% set f = ((daily.get(w, {}).get('forecast', []) or [{}])[0]) %}
             {% set sky = states(w) | replace('partlycloudy', 'partly cloudy') | replace('clear-night', 'clear') %}
-            {% if has_value('sensor.gibbonsbluff_temperature') %}
+            {% if has_value('sensor.ws_2902_gibbonsbluff_outdoor_temperature') %}
+            Right now on the bluff, measured at the bungalow's own weather station: {{ states('sensor.ws_2902_gibbonsbluff_outdoor_temperature') | float(0) | round(0) }} degrees (feels like {{ states('sensor.ws_2902_gibbonsbluff_feels_like_temperature') | float(0) | round(0) }}), humidity {{ states('sensor.ws_2902_gibbonsbluff_humidity') | float(0) | round(0) }} percent, wind {{ states('sensor.ws_2902_gibbonsbluff_wind_speed') | float(0) | round(0) }} mph
+            {%- if has_value('sensor.gibbonsbluff_max_daily_gust') %} with gusts up to {{ states('sensor.gibbonsbluff_max_daily_gust') | float(0) | round(0) }} today{% endif %}, sky {{ sky }}.
+            Inside the bungalow it is {{ states('sensor.ws_2902_gibbonsbluff_indoor_temperature') | float(0) | round(0) }} degrees.
+            {%- if states('sensor.ws_2902_gibbonsbluff_daily_rain') | float(0) > 0 %} Rain so far today: {{ states('sensor.ws_2902_gibbonsbluff_daily_rain') }} inches.{% endif %}
+            {%- if states('sensor.ws_2902_gibbonsbluff_uv_index') | float(0) >= 6 %} UV index {{ states('sensor.ws_2902_gibbonsbluff_uv_index') | float(0) | round(0) }} — strong sun.{% endif %}
+            {% elif has_value('sensor.gibbonsbluff_temperature') %}
             Right now on the bluff, measured at the bungalow's own weather station: {{ states('sensor.gibbonsbluff_temperature') | float(0) | round(0) }} degrees (feels like {{ states('sensor.gibbonsbluff_feels_like') | float(0) | round(0) }}), humidity {{ states('sensor.gibbonsbluff_humidity') | float(0) | round(0) }} percent, wind {{ states('sensor.gibbonsbluff_wind_speed') | float(0) | round(0) }} mph with gusts up to {{ states('sensor.gibbonsbluff_max_daily_gust') | float(0) | round(0) }} today, sky {{ sky }}.
             {%- if states('sensor.gibbonsbluff_daily_rain') | float(0) > 0 %} Rain so far today: {{ states('sensor.gibbonsbluff_daily_rain') }} inches.{% endif %}
             {%- if states('sensor.gibbonsbluff_uv_index') | float(0) >= 6 %} UV index {{ states('sensor.gibbonsbluff_uv_index') | float(0) | round(0) }} — strong sun.{% endif %}
@@ -217,6 +223,65 @@ automation:
                   entity_id: input_select.rowan_greeting_mode
                 data:
                   option: first_wake
+
+  # Prefill the LLM after HA restarts so the first guest question doesn't
+  # eat the ~14s prompt-prefill cost.
+  - alias: Rowan warm up model
+    id: rowan_warm_up_model
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:00:45"
+      - action: conversation.process
+        continue_on_error: true
+        data:
+          agent_id: conversation.rowan
+          text: >-
+            Host system instruction, not a guest speaking: this is a warm-up
+            ping after a restart. Reply with the single word: ready.
+
+  # Tell Mark when the satellite drops. persistent_notification shows in the
+  # HA UI; switch the action to notify.mobile_app_* once the companion app
+  # is set up on Mark's phone for push alerts.
+  - alias: Rowan satellite offline alert
+    id: rowan_satellite_offline_alert
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: assist_satellite.rowan_cliffside
+        to: unavailable
+        for: "00:05:00"
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: Rowan satellite offline
+          message: >-
+            The Cliffside satellite has been unavailable for 5 minutes
+            (since {{ trigger.from_state.last_changed if trigger.from_state else 'unknown' }}).
+            Guests cannot talk to Rowan. Check the Pi: ssh pi@100.87.194.126,
+            then journalctl -u wyoming-satellite -n 50.
+
+  # KB gap log: Rowan emits [KB_GAP: question] when the knowledge base
+  # couldn't answer; the tag filter fires this event (and logs to
+  # tag-filter-data/tags.log). Kept as a notification so gaps are visible
+  # without digging through logs.
+  - alias: Rowan KB gap noted
+    id: rowan_kb_gap_noted
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: rowan_kb_gap
+    actions:
+      - action: persistent_notification.create
+        data:
+          notification_id: "rowan_kb_gap_{{ trigger.event.data.value | slugify }}"
+          title: Rowan couldn't answer a guest
+          message: >-
+            "{{ trigger.event.data.value }}" — consider adding this to the
+            knowledge base (Rowan_Knowledge file), then rerun
+            scripts/build_rowan_prompt.py.
 
   # Guest asked Rowan to switch language (the model emits [LANGUAGE: es|en];
   # the tag filter fires this event). Flipping the satellite's assistant

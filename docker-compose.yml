@@ -76,6 +76,20 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # Translates the GibbonsBluff station's local Wunderground-style upload
+  # (HTTP GET :8126 every 60s) into Ecowitt-protocol POSTs for HA's official
+  # ecowitt integration. Fully local weather, survives internet outages.
+  wu-bridge:
+    container_name: wu-bridge
+    build: ./wu-bridge
+    environment:
+      - ECOWITT_WEBHOOK_URL=http://host.docker.internal:8123/api/webhook/1f1aff67dd98963eabff65f8b332d7f1
+    ports:
+      - "8126:8126"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
   ollama:
     container_name: ollama
     image: ollama/ollama:latest

@@ -1,0 +1,22 @@
+[Unit]
+Description=Wyoming Satellite
+Wants=network-online.target
+After=network-online.target
+Requires=wyoming-openwakeword.service
+[Service]
+Type=simple
+ExecStart=/home/pi/wyoming-satellite/script/run \
+    --name 'Rowan Cliffside' \
+    --uri 'tcp://0.0.0.0:10700' \
+    --mic-command 'arecord -D plughw:CARD=USB,DEV=0 -r 16000 -c 1 -f S16_LE -t raw' \
+    --snd-command 'aplay -D plughw:CARD=USB,DEV=0 -r 22050 -c 1 -f S16_LE -t raw' \
+    --wake-uri 'tcp://127.0.0.1:10400' \
+    --wake-word-name 'hey_rowan' \
+    --wake-word-name 'oye_rowan' \
+    --mic-auto-gain 10 \
+    --mic-noise-suppression 2
+WorkingDirectory=/home/pi/wyoming-satellite
+Restart=always
+RestartSec=1
+[Install]
+WantedBy=default.target

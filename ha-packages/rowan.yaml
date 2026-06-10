@@ -242,9 +242,7 @@ automation:
             Host system instruction, not a guest speaking: this is a warm-up
             ping after a restart. Reply with the single word: ready.
 
-  # Tell Mark when the satellite drops. persistent_notification shows in the
-  # HA UI; switch the action to notify.mobile_app_* once the companion app
-  # is set up on Mark's phone for push alerts.
+  # Tell Mark when the satellite drops: push to his phone + HA UI notification.
   - alias: Rowan satellite offline alert
     id: rowan_satellite_offline_alert
     mode: single
@@ -254,6 +252,14 @@ automation:
         to: unavailable
         for: "00:05:00"
     actions:
+      - action: notify.mobile_app_mark_s_phone
+        continue_on_error: true
+        data:
+          title: Rowan satellite offline
+          message: >-
+            The Cliffside satellite has been down for 5 minutes — guests
+            cannot talk to Rowan. Check the Pi (ssh pi@100.87.194.126,
+            journalctl -u wyoming-satellite -n 50).
       - action: persistent_notification.create
         data:
           title: Rowan satellite offline
@@ -262,6 +268,20 @@ automation:
             (since {{ trigger.from_state.last_changed if trigger.from_state else 'unknown' }}).
             Guests cannot talk to Rowan. Check the Pi: ssh pi@100.87.194.126,
             then journalctl -u wyoming-satellite -n 50.
+
+  # KB gaps also go to Mark's phone so the KB gets filled while it's fresh.
+  - alias: Rowan KB gap push
+    id: rowan_kb_gap_push
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: rowan_kb_gap
+    actions:
+      - action: notify.mobile_app_mark_s_phone
+        continue_on_error: true
+        data:
+          title: Rowan couldn't answer a guest
+          message: '"{{ trigger.event.data.value }}" — add it to the knowledge base.'
 
   # KB gap log: Rowan emits [KB_GAP: question] when the knowledge base
   # couldn't answer; the tag filter fires this event (and logs to

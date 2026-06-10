@@ -71,6 +71,12 @@ services:
     container_name: kokoro-wyoming
     image: ghcr.io/relvacode/kokoro-wyoming:latest
     restart: unless-stopped
+    # Patched main.py reads KOKORO_SPEED (upstream hardcodes 1.0). 1.10 = George's
+    # chosen pace; also gives questions slightly more room to rise. See kokoro/main.py.
+    environment:
+      - KOKORO_SPEED=1.10
+    volumes:
+      - ./kokoro/main.py:/app/src/main.py:ro
     logging: *default-logging
 
   # Strips [GUEST_SUMMARY]/[OPT_OUT] tags from Rowan's replies before TTS,

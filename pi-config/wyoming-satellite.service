@@ -16,6 +16,8 @@ ExecStart=/home/pi/wyoming-satellite/script/run \
     --mic-auto-gain 10 \
     --mic-noise-suppression 2 \
     --awake-wav '/home/pi/sounds/awake_rowan.wav' \
+    --mic-no-mute-during-awake-wav \
+    --mic-seconds-to-mute-after-awake-wav 0 \
     --stt-stop-command '/home/pi/play_filler.sh'
 WorkingDirectory=/home/pi/wyoming-satellite
 Restart=always

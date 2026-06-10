@@ -102,7 +102,12 @@ async def filter_event(ev):
     if tags:
         log.info("stripped %s from %r", [f"{n}:{v}" for n, v in tags], text[:120])
         asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, tags)
-        ev.data["text"] = cleaned
+    # Always apply the cleaned text: clean_text strips BOTH control tags and
+    # markdown, so markdown-only replies (no tag) must be cleaned too. Previously
+    # this was gated on `if tags:`, so replies like the WiFi password
+    # ("**Ahhwhataview!**") reached Kokoro with markdown and were read aloud as
+    # "asterisk asterisk".
+    ev.data["text"] = cleaned
     return ev
 
 

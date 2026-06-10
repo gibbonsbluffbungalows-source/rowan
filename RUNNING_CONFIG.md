@@ -99,3 +99,22 @@ Brief refreshes /30min + HA start + `rowan_weather_refresh` event.
 - [ ] Booking-calendar auto guest-reset (needs Airbnb/VRBO iCal URL).
 - [ ] Shelly Motion: greeting → first-motion-after-8am when installed.
 - [ ] HA companion app on Mark's phone → switch watchdog to push notifications.
+
+## HTTPS access (Tailscale Serve) — added 2026-06-10
+Companion app / browser reach HA over HTTPS at **https://rowan.tail49268a.ts.net**
+(tailnet-only, auto Let's Encrypt cert via Tailscale; not Funnel/public).
+
+Rebuild if lost:
+1. Tailscale admin console → DNS → Enable HTTPS Certificates.
+2. `sudo tailscale serve --bg --https=443 http://127.0.0.1:8123`
+3. In `homeassistant/config/configuration.yaml` (NOT git-tracked) add:
+   ```yaml
+   http:
+     use_x_forwarded_for: true
+     trusted_proxies:
+       - 127.0.0.1
+       - ::1
+   ```
+   then `docker restart homeassistant`.
+4. Set URLs: `docker cp scripts/set_ha_urls.py homeassistant:/config/ && docker exec homeassistant python /config/set_ha_urls.py` (sets internal/external_url to the https name).
+5. Point the companion app server URL at https://rowan.tail49268a.ts.net.

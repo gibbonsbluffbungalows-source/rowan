@@ -16,10 +16,14 @@ Guest speaks "Rowan, ..."
         ▼
   Server (rowan, Tailscale 100.110.169.17, RTX 5060 Ti)
   Home Assistant (host network, :8123) — Assist pipeline "Rowan"
-  ├─ STT  wyoming-whisper   :10300  (faster-whisper medium, beam 1, en)
-  ├─ LLM  ollama            :11434  (qwen2.5:14b, GPU, keep_alive=-1)
-  └─ TTS  kokoro-wyoming    :10210  (voice: bm_lewis)
+  ├─ STT  wyoming-whisper   :10300  (faster-whisper medium GPU, beam 1, en)
+  ├─ LLM  ollama            :11434  (qwen2.5:14b, GPU, keep_alive=-1, num_ctx 16384)
+  └─ TTS  wyoming-tag-filter :10210 → kokoro-wyoming (internal) (voice: bm_lewis)
           wyoming-piper     :10200  (en_US-amy-low — fallback, unused)
+
+  The tag filter (tag-filter/filter.py) strips [GUEST_SUMMARY:]/[OPT_OUT:] tags
+  from Rowan's replies before synthesis, appends them to tag-filter-data/tags.log,
+  and fires HA events rowan_guest_summary / rowan_opt_out for future automations.
 ```
 
 ## Server (`/home/rowan`)

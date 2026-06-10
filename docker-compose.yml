@@ -57,8 +57,23 @@ services:
   kokoro-wyoming:
     container_name: kokoro-wyoming
     image: ghcr.io/relvacode/kokoro-wyoming:latest
+    restart: unless-stopped
+
+  # Strips [GUEST_SUMMARY]/[OPT_OUT] tags from Rowan's replies before TTS,
+  # logs them to ./tag-filter-data/tags.log, and fires HA events.
+  # Owns host port 10210 so HA's existing Kokoro integration needs no changes.
+  wyoming-tag-filter:
+    container_name: wyoming-tag-filter
+    build: ./tag-filter
+    depends_on:
+      - kokoro-wyoming
     ports:
       - "10210:10210"
+    volumes:
+      - ./tag-filter-data:/data
+      - ./.ha_token:/ha_token:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   ollama:

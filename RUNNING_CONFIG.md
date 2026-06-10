@@ -21,11 +21,22 @@ Guest speaks "Rowan, ..." (or "Oye Rowan")
   ├─ STT  wyoming-whisper    :10300  faster-whisper medium GPU, beam 1
   │         (--language en is only the default; each pipeline passes its own)
   ├─ LLM  ollama             :11434  qwen2.5:14b, GPU, keep_alive=-1, num_ctx 16384
-  ├─ TTS  wyoming-tag-filter :10210 → kokoro-wyoming (bm_lewis EN / em_alex ES)
+  ├─ TTS  wyoming-tag-filter :10210 → kokoro-wyoming (bm_george EN / em_alex ES)
+  │         @ KOKORO_SPEED=1.08 — see "Voice / TTS" below
   │         wyoming-piper    :10200  (en_US-amy-low — fallback, unused)
   └─ WX   wu-bridge          :8126  ← GibbonsBluff station (192.168.4.67) pushes
             local WU-format GET every 60s; bridge forwards to ecowitt webhook
 ```
+
+## Voice / TTS
+
+English Rowan speaks **Kokoro `bm_george`** (British male) at **1.08× speed**; Spanish "Rowan ES" stays `em_alex`. Chosen by A/B audition on the Jabra over bm_lewis (the old voice), other male/female Kokoro voices, and Chatterbox (rejected — needs 4GB+ VRAM we don't have free, and the gain over George didn't justify the LLM/VRAM tradeoff).
+
+- **Speed:** upstream kokoro-wyoming hardcodes `speed=1.0`. We bind-mount a patched `kokoro/main.py` (reads `KOKORO_SPEED` env) and set `KOKORO_SPEED=1.08` in docker-compose. To re-tune: edit the env, `docker compose up -d kokoro-wyoming`. (Language is auto-derived from the voice prefix: `bm_*`→en-gb, `a*`→en-us, `e*`→es.)
+- **Pipeline voice** lives in HA `.storage` (not git). Change via `docker exec homeassistant python3 /config/set_rowan_voice.py <token> <voice>` (deploy: `docker cp scripts/set_rowan_voice.py homeassistant:/config/`). Token = `/home/rowan/.ha_token`.
+- **Question intonation:** Kokoro under-applies the rising lilt on clipped questions, so `build_rowan_prompt.py` has a REQUIRED rule telling Rowan to phrase questions as full interrogatives ("Is there anything else you need?" not "Anything else?").
+- **Pi fillers** (`/home/pi/sounds/fillers/*.wav`, repo `pi-config/sounds/fillers/`) must match the live voice — they're pre-rendered, so re-render in the current voice after any voice change: synth via `scripts/tts_sample.py --voice bm_george`, then `sox <in> -r 22050 -c 1 -b 16 <out>`.
+- After any TTS/voice/prompt change, clear cached audio: `sudo rm -f /home/rowan/homeassistant/config/tts/*`.
 
 ## Control tags (model reply → tag filter → HA event → automation)
 

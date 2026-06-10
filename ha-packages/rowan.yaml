@@ -33,8 +33,11 @@ template:
         attributes:
           notes: >-
             {% if trigger.id == 'reset' %}{% else %}
-            {{ (((state_attr('sensor.rowan_guest_notes', 'notes') or '') ~ '\n- ' ~ trigger.event.data.value) | trim) }}
-            {% endif %}
+            {% set existing = state_attr('sensor.rowan_guest_notes', 'notes') or '' %}
+            {% set value = trigger.event.data.value | trim %}
+            {% if value and value in existing %}{{ existing }}{% else %}
+            {{ ((existing ~ '\n- ' ~ now().strftime('%a %b %-d') ~ ': ' ~ value) | trim).split('\n')[-15:] | join('\n') }}
+            {% endif %}{% endif %}
 
 automation:
   - alias: Rowan opt-out handling

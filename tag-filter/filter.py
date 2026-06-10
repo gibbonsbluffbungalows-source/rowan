@@ -65,9 +65,29 @@ def record_tags_blocking(tags: list[tuple[str, str]]) -> None:
             log.error("failed to fire %s: %s", event_type, err)
 
 
+def strip_markdown(text: str) -> str:
+    """Remove markdown formatting so TTS doesn't read '**', '#', backticks, etc."""
+    # [label](url) -> label
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # paired emphasis: **bold**, __bold__, *italic*, _italic_  -> inner text
+    text = re.sub(r"(\*\*|__|\*|_)(.+?)\1", r"\2", text, flags=re.S)
+    # per-line: strip leading headings, list bullets, blockquotes
+    lines = []
+    for ln in text.split("\n"):
+        ln = re.sub(r"^\s{0,3}#{1,6}\s*", "", ln)
+        ln = re.sub(r"^\s*([-*+]|\d+[.)])\s+", "", ln)
+        ln = re.sub(r"^\s*>\s?", "", ln)
+        lines.append(ln)
+    text = "\n".join(lines)
+    # remove any leftover/unbalanced markup characters (e.g. a stray '**')
+    text = re.sub(r"[*_`~#]+", "", text)
+    return text
+
+
 def clean_text(text: str) -> tuple[str, list[tuple[str, str]]]:
     tags = TAG_RE.findall(text)
     cleaned = TAG_RE.sub(" ", text)
+    cleaned = strip_markdown(cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned or "Okay.", tags

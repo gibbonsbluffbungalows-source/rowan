@@ -42,6 +42,36 @@ template:
             {{ ((existing ~ '\n- ' ~ now().strftime('%a %b %-d') ~ ': ' ~ value) | trim).split('\n')[-15:] | join('\n') }}
             {% endif %}{% endif %}
 
+  # Compact weather summary refreshed every 30 min; injected into Rowan's
+  # prompt by build_rowan_prompt.py. Fire event rowan_weather_refresh to
+  # update on demand.
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: rowan_weather_refresh
+    actions:
+      - action: weather.get_forecasts
+        data:
+          type: daily
+        target:
+          entity_id: weather.forecast_cliffside_bungalow
+        response_variable: daily
+    sensor:
+      - name: Rowan Weather Brief
+        unique_id: rowan_weather_brief
+        icon: mdi:weather-partly-cloudy
+        state: "{{ states('weather.forecast_cliffside_bungalow') }}"
+        attributes:
+          brief: >-
+            {% set w = 'weather.forecast_cliffside_bungalow' %}
+            {% set f = ((daily.get(w, {}).get('forecast', []) or [{}])[0]) %}
+            Right now on the bluff: {{ state_attr(w, 'temperature') }} degrees and {{ states(w) | replace('partlycloudy', 'partly cloudy') | replace('clear-night', 'clear') }}, wind {{ state_attr(w, 'wind_speed') | round(0) }} mph.
+            Today's forecast: {{ f.get('condition', 'unknown') | replace('partlycloudy', 'partly cloudy') }}, high {{ f.get('temperature', '?') }}, low {{ f.get('templow', '?') }}, {{ f.get('precipitation_probability', 0) }} percent chance of precipitation.
+            (Remember the valley floor runs about 7 degrees warmer than the bluff.)
+
 automation:
   - alias: Rowan opt-out handling
     id: rowan_opt_out_handling

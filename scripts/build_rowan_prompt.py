@@ -33,6 +33,11 @@ When a guest tells you something durable — an injury or mobility limit, a stro
 # CURRENT GUEST CONTEXT (live, rendered by Home Assistant each turn)
 
 Right now it is {{ now().strftime('%A, %B %-d, %I:%M %p') }} Central.
+{% set wb = state_attr('sensor.rowan_weather_brief', 'brief') %}
+{%- if wb %}
+{{ wb }}
+Use this live weather when it matters (hikes, the deck, the hot tub, what to wear). If asked beyond today, say you only have today's outlook.
+{%- endif %}
 {% set notes = state_attr('sensor.rowan_guest_notes', 'notes') %}
 {%- if notes %}
 What you have learned about the current guests so far:

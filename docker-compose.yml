@@ -1,0 +1,55 @@
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    volumes:
+      - ./homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+
+  wyoming-whisper:
+    container_name: wyoming-whisper
+    image: rhasspy/wyoming-whisper:latest
+    command: --model medium --language en --beam-size 1
+    volumes:
+      - ./whisper-data:/data
+    ports:
+      - "10300:10300"
+    restart: unless-stopped
+
+  wyoming-piper:
+    container_name: wyoming-piper
+    image: rhasspy/wyoming-piper:latest
+    command: --voice en_US-amy-low
+    volumes:
+      - ./piper-data:/data
+    ports:
+      - "10200:10200"
+    restart: unless-stopped
+
+  kokoro-wyoming:
+    container_name: kokoro-wyoming
+    image: ghcr.io/relvacode/kokoro-wyoming:latest
+    ports:
+      - "10210:10210"
+    restart: unless-stopped
+
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0

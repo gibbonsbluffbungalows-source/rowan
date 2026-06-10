@@ -1,0 +1,6 @@
+.ha_token
+homeassistant/
+ollama-data/
+piper-data/
+whisper-data/
+kokoro-data/

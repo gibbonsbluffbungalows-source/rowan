@@ -1,0 +1,10 @@
+# /etc/sudoers.d/rowan-nopasswd  (chmod 440, root:root)
+# Rowan Pi: passwordless deploy/control for the Wyoming voice satellite stack.
+# Scoped to specific commands only (no blanket NOPASSWD) so that staging a new
+# unit file and restarting the services never needs a password.
+# Deploy pattern: scp unit -> /home/pi/<svc>.service.new, then the cp + reload + restart below.
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl restart wyoming-satellite, /usr/bin/systemctl start wyoming-satellite, /usr/bin/systemctl stop wyoming-satellite, /usr/bin/systemctl is-active wyoming-satellite
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl restart wyoming-openwakeword, /usr/bin/systemctl start wyoming-openwakeword, /usr/bin/systemctl stop wyoming-openwakeword, /usr/bin/systemctl is-active wyoming-openwakeword
+pi ALL=(root) NOPASSWD: /usr/bin/cp /home/pi/wyoming-satellite.service.new /etc/systemd/system/wyoming-satellite.service
+pi ALL=(root) NOPASSWD: /usr/bin/cp /home/pi/wyoming-openwakeword.service.new /etc/systemd/system/wyoming-openwakeword.service

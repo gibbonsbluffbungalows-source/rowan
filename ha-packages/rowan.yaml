@@ -8,6 +8,9 @@ input_boolean:
   rowan_paused:
     name: Rowan paused (guest asked for space)
     icon: mdi:sleep
+  rowan_morning_greeting:
+    name: Rowan morning greeting enabled
+    icon: mdi:weather-sunset-up
 
 input_button:
   rowan_new_guest:
@@ -77,6 +80,46 @@ automation:
               - action: switch.turn_on
                 target:
                   entity_id: switch.rowan_cliffside_mute
+
+  # Proactive morning greeting: Rowan composes a short personalized hello
+  # (knee check-ins, yesterday's outing, one idea for today) and announces
+  # it through the satellite. Only fires when guest notes exist, so an
+  # empty bungalow stays quiet. 8:30 = after quiet hours end (8:00 Central).
+  - alias: Rowan morning greeting
+    id: rowan_morning_greeting
+    triggers:
+      - trigger: time
+        at: "08:30:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.rowan_morning_greeting
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.rowan_paused
+        state: "off"
+      - condition: state
+        entity_id: switch.rowan_cliffside_mute
+        state: "off"
+      - condition: template
+        value_template: "{{ (state_attr('sensor.rowan_guest_notes', 'notes') or '') | trim != '' }}"
+    actions:
+      - action: conversation.process
+        data:
+          agent_id: conversation.rowan
+          text: >-
+            Host system instruction, not a guest speaking: compose your
+            unprompted morning greeting to the guests for today. Two or three
+            short sentences, warm and unhurried. If your guest notes mention an
+            injury, yesterday's outing, or plans for today, check in on it
+            naturally. Offer at most one fitting idea for the day. The guests
+            have not said anything — this is you greeting them first, so do not
+            answer or reference a question.
+        response_variable: greeting
+      - action: assist_satellite.announce
+        target:
+          entity_id: assist_satellite.rowan_cliffside
+        data:
+          message: "{{ greeting.response.speech.plain.speech }}"
 
   - alias: Rowan new guest reset actions
     id: rowan_new_guest_reset_actions

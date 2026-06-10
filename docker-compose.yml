@@ -27,7 +27,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=America/New_York
+      - TZ=America/Chicago
       - WHISPER_MODEL=medium
       - WHISPER_BEAM=1
       - WHISPER_LANG=en

@@ -24,6 +24,22 @@ input_datetime:
     has_date: true
     has_time: true
 
+command_line:
+  # Disk usage of the volume holding /config (= the server's main disk).
+  - sensor:
+      name: Rowan server disk use
+      unique_id: rowan_server_disk_use
+      command: df -P /config | awk 'NR==2 {print $5}' | tr -dc '0-9'
+      unit_of_measurement: "%"
+      scan_interval: 3600
+
+shell_command:
+  # Nightly pipeline self-test (script copied to /config by deploy steps;
+  # source of truth: scripts/self_test.py in git).
+  rowan_self_test: python3 /config/self_test.py
+  # Keep the 4 newest weekly backups.
+  rowan_prune_backups: ls -t /config/backups/*.tar 2>/dev/null | tail -n +5 | xargs -r rm -f
+
 input_button:
   rowan_new_guest:
     name: Rowan new guest reset
@@ -302,6 +318,85 @@ automation:
             "{{ trigger.event.data.value }}" — consider adding this to the
             knowledge base (Rowan_Knowledge file), then rerun
             scripts/build_rowan_prompt.py.
+
+  # Guest asked Rowan to pass something to the host (model emits
+  # [HOST_MESSAGE: …]; tag filter fires this event).
+  - alias: Rowan host message
+    id: rowan_host_message
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: rowan_host_message
+    actions:
+      - action: notify.mobile_app_mark_s_phone
+        continue_on_error: true
+        data:
+          title: Message from the bungalow
+          message: "{{ trigger.event.data.value }}"
+      - action: persistent_notification.create
+        data:
+          title: Message from the bungalow
+          message: "{{ now().strftime('%a %b %-d %-I:%M %p') }} — {{ trigger.event.data.value }}"
+
+  # Disk filling up is a silent killer months out — warn at 85%.
+  - alias: Rowan disk space alert
+    id: rowan_disk_space_alert
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.rowan_server_disk_use
+        above: 85
+        for: "01:00:00"
+    actions:
+      - action: notify.mobile_app_mark_s_phone
+        continue_on_error: true
+        data:
+          title: Rowan server disk almost full
+          message: >-
+            Disk is at {{ states('sensor.rowan_server_disk_use') }}%. Check
+            docker logs, HA backups (/config/backups), and ollama models.
+
+  # Weekly HA backup (covers .storage, which is deliberately not in git),
+  # kept locally in /config/backups, newest 4 retained.
+  - alias: Rowan weekly backup
+    id: rowan_weekly_backup
+    mode: single
+    triggers:
+      - trigger: time
+        at: "04:00:00"
+    conditions:
+      - condition: time
+        weekday: [mon]
+    actions:
+      - action: backup.create
+      - delay: "00:10:00"
+      - action: shell_command.rowan_prune_backups
+
+  # Nightly self-test: TTS -> STT -> LLM round trip at 4:30 AM. Push to
+  # Mark's phone only on failure; success is silent.
+  - alias: Rowan nightly self test
+    id: rowan_nightly_self_test
+    mode: single
+    triggers:
+      - trigger: time
+        at: "04:30:00"
+    actions:
+      - action: shell_command.rowan_self_test
+        response_variable: selftest
+        continue_on_error: true
+      - if:
+          - condition: template
+            value_template: "{{ selftest.returncode != 0 }}"
+        then:
+          - action: notify.mobile_app_mark_s_phone
+            continue_on_error: true
+            data:
+              title: Rowan self-test FAILED
+              message: "{{ selftest.stdout }} {{ selftest.stderr }}"
+          - action: persistent_notification.create
+            data:
+              title: Rowan self-test FAILED
+              message: "{{ selftest.stdout }} {{ selftest.stderr }}"
 
   # Guest asked Rowan to switch language (the model emits [LANGUAGE: es|en];
   # the tag filter fires this event). Flipping the satellite's assistant

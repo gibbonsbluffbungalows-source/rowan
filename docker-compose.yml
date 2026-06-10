@@ -1,13 +1,23 @@
+# Bounded container logs everywhere — unrotated json logs will eventually
+# fill the disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   homeassistant:
     container_name: homeassistant
     image: ghcr.io/home-assistant/home-assistant:stable
     volumes:
       - ./homeassistant/config:/config
+      - ./.ha_token:/config/.self_test_token:ro
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     privileged: true
     network_mode: host
+    logging: *default-logging
 
   # CPU fallback — start with: docker compose --profile cpu-stt up -d wyoming-whisper-cpu
   wyoming-whisper-cpu:
@@ -20,6 +30,7 @@ services:
     ports:
       - "10300:10300"
     restart: unless-stopped
+    logging: *default-logging
 
   wyoming-whisper:
     container_name: wyoming-whisper
@@ -43,6 +54,7 @@ services:
     ports:
       - "10300:10300"
     restart: unless-stopped
+    logging: *default-logging
 
   wyoming-piper:
     container_name: wyoming-piper
@@ -53,11 +65,13 @@ services:
     ports:
       - "10200:10200"
     restart: unless-stopped
+    logging: *default-logging
 
   kokoro-wyoming:
     container_name: kokoro-wyoming
     image: ghcr.io/relvacode/kokoro-wyoming:latest
     restart: unless-stopped
+    logging: *default-logging
 
   # Strips [GUEST_SUMMARY]/[OPT_OUT] tags from Rowan's replies before TTS,
   # logs them to ./tag-filter-data/tags.log, and fires HA events.
@@ -75,6 +89,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    logging: *default-logging
 
   # Translates the GibbonsBluff station's local Wunderground-style upload
   # (HTTP GET :8126 every 60s) into Ecowitt-protocol POSTs for HA's official
@@ -89,6 +104,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    logging: *default-logging
 
   ollama:
     container_name: ollama
@@ -107,3 +123,4 @@ services:
     restart: unless-stopped
     environment:
       - OLLAMA_HOST=0.0.0.0
+    logging: *default-logging

@@ -8,6 +8,9 @@ input_boolean:
   rowan_paused:
     name: Rowan paused (guest asked for space)
     icon: mdi:sleep
+  rowan_greeting_offered:
+    name: Rowan has offered the daily greeting this stay
+    icon: mdi:hand-wave
 input_select:
   rowan_greeting_mode:
     name: Rowan morning greeting mode
@@ -171,6 +174,11 @@ automation:
           entity_id: input_datetime.rowan_last_reply
         data:
           datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      # The morning-greeting offer is made (at most) in the first reply of a
+      # stay; mark it offered so the prompt stops asking on every conversation.
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.rowan_greeting_offered
 
   # Unprompted morning greeting via announce — only in 'time' mode (default
   # is first_wake: the greeting rides inside Rowan's first reply of the day
@@ -257,6 +265,34 @@ automation:
           text: >-
             Host system instruction, not a guest speaking: this is a warm-up
             ping after a restart. Reply with the single word: ready.
+
+  # Keep the model AND its prompt-cache hot during waking hours. Guests talk to
+  # Rowan minutes apart, so the model is almost always cold: keep_alive=-1 pins
+  # the weights in VRAM but the CUDA context still goes idle, costing ~5.5s of
+  # re-warm PLUS a lost prompt cache on the first query. A trivial
+  # conversation.process every 2 min runs the full prompt path, keeping both the
+  # compute context and the ~11k-token cached prefix resident, so a real guest
+  # query lands warm (~5s instead of ~8-10s). Gated 06:00-23:00 to skip the dead
+  # of night (a rare overnight query just eats one cold start).
+  - alias: Rowan keep model warm
+    id: rowan_keep_model_warm
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/2"
+    conditions:
+      - condition: time
+        after: "06:00:00"
+        before: "23:00:00"
+    actions:
+      - action: conversation.process
+        continue_on_error: true
+        data:
+          agent_id: conversation.rowan
+          text: >-
+            Host system instruction, not a guest speaking: keep-warm ping.
+            Reply with the single word: ready.
 
   # Tell Mark when the satellite drops: push to his phone + HA UI notification.
   - alias: Rowan satellite offline alert
@@ -425,6 +461,9 @@ automation:
       - action: input_boolean.turn_off
         target:
           entity_id: input_boolean.rowan_paused
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.rowan_greeting_offered
       - action: switch.turn_off
         target:
           entity_id: switch.rowan_cliffside_mute
@@ -438,3 +477,30 @@ automation:
           entity_id: select.rowan_cliffside_assistant
         data:
           option: Rowan
+
+  # At checkout on a checkout day, wipe guest memory for the next stay.
+  # Source: calendar.airbnb_cliffside (Airbnb iCal, secret URL lives only in
+  # HA .storage, never in git). Airbnb all-day events end at 00:00 of the
+  # checkout date (DTEND exclusive); +12:00 offset fires at noon Central —
+  # after the 10 AM checkout, before the 2 PM check-in. Presses the same
+  # button as the manual reset (clears notes + language + pause/mute +
+  # greeting mode).
+  - alias: Rowan checkout reset
+    id: rowan_checkout_reset
+    mode: single
+    triggers:
+      - trigger: calendar
+        entity_id: calendar.airbnb_cliffside
+        event: end
+        offset: "12:00:00"
+    actions:
+      - action: input_button.press
+        target:
+          entity_id: input_button.rowan_new_guest
+      - action: notify.mobile_app_mark_s_phone
+        continue_on_error: true
+        data:
+          title: Rowan reset for the next guest
+          message: >-
+            Checkout today — cleared the previous guests' notes, language,
+            and settings. Ready for the next stay.

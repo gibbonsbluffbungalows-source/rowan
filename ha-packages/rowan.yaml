@@ -56,7 +56,10 @@ template:
 
   # Compact weather summary refreshed every 30 min; injected into Rowan's
   # prompt by build_rowan_prompt.py. Fire event rowan_weather_refresh to
-  # update on demand.
+  # update on demand. Current conditions come from the GibbonsBluff station
+  # at the property (ambient_network integration, polled by MAC — entry
+  # installed by scripts/add_gibbonsbluff_entry.py); Met.no supplies the
+  # sky condition and forecast, and is the fallback if the station is stale.
   - triggers:
       - trigger: time_pattern
         minutes: "/30"
@@ -80,7 +83,14 @@ template:
           brief: >-
             {% set w = 'weather.forecast_cliffside_bungalow' %}
             {% set f = ((daily.get(w, {}).get('forecast', []) or [{}])[0]) %}
-            Right now on the bluff: {{ state_attr(w, 'temperature') }} degrees and {{ states(w) | replace('partlycloudy', 'partly cloudy') | replace('clear-night', 'clear') }}, wind {{ state_attr(w, 'wind_speed') | round(0) }} mph.
+            {% set sky = states(w) | replace('partlycloudy', 'partly cloudy') | replace('clear-night', 'clear') %}
+            {% if has_value('sensor.gibbonsbluff_temperature') %}
+            Right now on the bluff, measured at the bungalow's own weather station: {{ states('sensor.gibbonsbluff_temperature') | float(0) | round(0) }} degrees (feels like {{ states('sensor.gibbonsbluff_feels_like') | float(0) | round(0) }}), humidity {{ states('sensor.gibbonsbluff_humidity') | float(0) | round(0) }} percent, wind {{ states('sensor.gibbonsbluff_wind_speed') | float(0) | round(0) }} mph with gusts up to {{ states('sensor.gibbonsbluff_max_daily_gust') | float(0) | round(0) }} today, sky {{ sky }}.
+            {%- if states('sensor.gibbonsbluff_daily_rain') | float(0) > 0 %} Rain so far today: {{ states('sensor.gibbonsbluff_daily_rain') }} inches.{% endif %}
+            {%- if states('sensor.gibbonsbluff_uv_index') | float(0) >= 6 %} UV index {{ states('sensor.gibbonsbluff_uv_index') | float(0) | round(0) }} — strong sun.{% endif %}
+            {% else %}
+            Right now on the bluff: {{ state_attr(w, 'temperature') }} degrees and {{ sky }}, wind {{ state_attr(w, 'wind_speed') | round(0) }} mph.
+            {% endif %}
             Today's forecast: {{ f.get('condition', 'unknown') | replace('partlycloudy', 'partly cloudy') }}, high {{ f.get('temperature', '?') }}, low {{ f.get('templow', '?') }}, {{ f.get('precipitation_probability', 0) }} percent chance of precipitation.
             (Remember the valley floor runs about 7 degrees warmer than the bluff.)
 

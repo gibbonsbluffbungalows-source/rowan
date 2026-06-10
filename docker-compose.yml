@@ -9,12 +9,37 @@ services:
     privileged: true
     network_mode: host
 
-  wyoming-whisper:
-    container_name: wyoming-whisper
+  # CPU fallback — start with: docker compose --profile cpu-stt up -d wyoming-whisper-cpu
+  wyoming-whisper-cpu:
+    container_name: wyoming-whisper-cpu
     image: rhasspy/wyoming-whisper:latest
     command: --model medium --language en --beam-size 1
+    profiles: ["cpu-stt"]
     volumes:
       - ./whisper-data:/data
+    ports:
+      - "10300:10300"
+    restart: unless-stopped
+
+  wyoming-whisper:
+    container_name: wyoming-whisper
+    image: lscr.io/linuxserver/faster-whisper:gpu
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      - WHISPER_MODEL=medium
+      - WHISPER_BEAM=1
+      - WHISPER_LANG=en
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./whisper-gpu-data:/config
     ports:
       - "10300:10300"
     restart: unless-stopped

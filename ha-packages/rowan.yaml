@@ -1,0 +1,89 @@
+# Rowan concierge package — consumes the rowan_guest_summary / rowan_opt_out
+# events fired by the wyoming-tag-filter container.
+#
+# Source of truth lives at /home/rowan/ha-packages/rowan.yaml (git-tracked);
+# installed copy at /config/packages/rowan.yaml.
+
+input_boolean:
+  rowan_paused:
+    name: Rowan paused (guest asked for space)
+    icon: mdi:sleep
+
+input_button:
+  rowan_new_guest:
+    name: Rowan new guest reset
+    icon: mdi:account-switch
+
+template:
+  - triggers:
+      - trigger: event
+        event_type: rowan_guest_summary
+        id: add
+      - trigger: state
+        entity_id: input_button.rowan_new_guest
+        id: reset
+    sensor:
+      - name: Rowan Guest Notes
+        unique_id: rowan_guest_notes
+        icon: mdi:notebook-outline
+        state: >-
+          {% if trigger.id == 'reset' %}0{% else %}
+          {{ ((state_attr('sensor.rowan_guest_notes', 'notes') or '').split('\n') | reject('eq', '') | list | length) + 1 }}
+          {% endif %}
+        attributes:
+          notes: >-
+            {% if trigger.id == 'reset' %}{% else %}
+            {{ (((state_attr('sensor.rowan_guest_notes', 'notes') or '') ~ '\n- ' ~ trigger.event.data.value) | trim) }}
+            {% endif %}
+
+automation:
+  - alias: Rowan opt-out handling
+    id: rowan_opt_out_handling
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: rowan_opt_out
+    actions:
+      - choose:
+          # "Rowan, take a break" — stay quiet but keep listening so
+          # "Rowan, we're back" still works.
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.event.data.value | lower == 'pause' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.rowan_paused
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.event.data.value | lower == 'resume' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.rowan_paused
+          # "We don't want to use you" — hard-mute the satellite mic.
+          # Voice can't undo this (mic is off); unmute from the HA UI or
+          # the new-guest reset button.
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.event.data.value | lower == 'silence' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.rowan_paused
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.rowan_cliffside_mute
+
+  - alias: Rowan new guest reset actions
+    id: rowan_new_guest_reset_actions
+    triggers:
+      - trigger: state
+        entity_id: input_button.rowan_new_guest
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.rowan_paused
+      - action: switch.turn_off
+        target:
+          entity_id: switch.rowan_cliffside_mute

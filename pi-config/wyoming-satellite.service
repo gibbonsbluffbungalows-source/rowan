@@ -14,7 +14,9 @@ ExecStart=/home/pi/wyoming-satellite/script/run \
     --wake-word-name 'hey_rowan' \
     --wake-word-name 'oye_rowan' \
     --mic-auto-gain 10 \
-    --mic-noise-suppression 2
+    --mic-noise-suppression 2 \
+    --awake-wav '/home/pi/wyoming-satellite/sounds/awake.wav' \
+    --stt-stop-command '/home/pi/play_filler.sh'
 WorkingDirectory=/home/pi/wyoming-satellite
 Restart=always
 RestartSec=1

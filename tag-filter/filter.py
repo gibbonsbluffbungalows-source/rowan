@@ -26,7 +26,13 @@ HA_URL = "http://host.docker.internal:8123"
 TOKEN_FILE = Path("/ha_token")
 LOG_FILE = Path("/data/tags.log")
 
-TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT)\s*:\s*([^\]\[]*?)\s*\]", re.I)
+TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT|MORNING_GREETING)\s*:\s*([^\]\[]*?)\s*\]", re.I)
+
+EVENT_FOR_TAG = {
+    "GUEST_SUMMARY": "rowan_guest_summary",
+    "OPT_OUT": "rowan_opt_out",
+    "MORNING_GREETING": "rowan_morning_greeting_pref",
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("tag-filter")
@@ -42,7 +48,7 @@ def record_tags_blocking(tags: list[tuple[str, str]]) -> None:
         log.warning("no HA token mounted; skipping HA events")
         return
     for name, value in tags:
-        event_type = "rowan_guest_summary" if name.upper() == "GUEST_SUMMARY" else "rowan_opt_out"
+        event_type = EVENT_FOR_TAG.get(name.upper(), "rowan_guest_summary")
         req = urllib.request.Request(
             f"{HA_URL}/api/events/{event_type}",
             data=json.dumps({"value": value}).encode(),

@@ -8,9 +8,21 @@ input_boolean:
   rowan_paused:
     name: Rowan paused (guest asked for space)
     icon: mdi:sleep
-  rowan_morning_greeting:
-    name: Rowan morning greeting enabled
+input_select:
+  rowan_greeting_mode:
+    name: Rowan morning greeting mode
     icon: mdi:weather-sunset-up
+    options:
+      - "off"          # no morning greeting at all
+      - first_wake     # greet within Rowan's first reply of the day (guest initiates)
+      - time           # unprompted announce at 8:30 — original behavior
+      - motion         # placeholder: wire to Shelly motion sensor when installed
+
+input_datetime:
+  rowan_last_reply:
+    name: Rowan last spoken reply
+    has_date: true
+    has_time: true
 
 input_button:
   rowan_new_guest:
@@ -111,10 +123,27 @@ automation:
                 target:
                   entity_id: switch.rowan_cliffside_mute
 
-  # Proactive morning greeting: Rowan composes a short personalized hello
-  # (knee check-ins, yesterday's outing, one idea for today) and announces
-  # it through the satellite. Only fires when guest notes exist, so an
-  # empty bungalow stays quiet. 8:30 = after quiet hours end (8:00 Central).
+  # Stamp the time of every spoken reply. Fires on 'responding' (after the
+  # LLM prompt has rendered) so first-conversation detection in the prompt
+  # can't see its own interaction.
+  - alias: Rowan stamp last reply
+    id: rowan_stamp_last_reply
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: assist_satellite.rowan_cliffside
+        to: responding
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.rowan_last_reply
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  # Unprompted morning greeting via announce — only in 'time' mode (default
+  # is first_wake: the greeting rides inside Rowan's first reply of the day
+  # instead, handled in the prompt template). Only fires when guest notes
+  # exist, so an empty bungalow stays quiet. 8:30 = after quiet hours end.
   - alias: Rowan morning greeting
     id: rowan_morning_greeting
     triggers:
@@ -122,8 +151,8 @@ automation:
         at: "08:30:00"
     conditions:
       - condition: state
-        entity_id: input_boolean.rowan_morning_greeting
-        state: "on"
+        entity_id: input_select.rowan_greeting_mode
+        state: time
       - condition: state
         entity_id: input_boolean.rowan_paused
         state: "off"
@@ -151,6 +180,34 @@ automation:
         data:
           message: "{{ greeting.response.speech.plain.speech }}"
 
+  # Guest's spoken answer to Rowan's morning-greeting offer (the model emits
+  # [MORNING_GREETING: yes|no]; the tag filter fires this event).
+  - alias: Rowan morning greeting preference
+    id: rowan_morning_greeting_preference
+    triggers:
+      - trigger: event
+        event_type: rowan_morning_greeting_pref
+    actions:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.event.data.value | lower in ['yes', 'on', 'sure', 'please'] }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.rowan_greeting_mode
+                data:
+                  option: time
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.event.data.value | lower in ['no', 'off'] }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.rowan_greeting_mode
+                data:
+                  option: first_wake
+
   - alias: Rowan new guest reset actions
     id: rowan_new_guest_reset_actions
     triggers:
@@ -163,3 +220,8 @@ automation:
       - action: switch.turn_off
         target:
           entity_id: switch.rowan_cliffside_mute
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.rowan_greeting_mode
+        data:
+          option: first_wake

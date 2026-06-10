@@ -1,9 +1,15 @@
 [Unit]
-Description=Wyoming openWakeWord
+Description=Wyoming openWakeWord (original openwakeword + onnx custom models)
 [Service]
 Type=simple
-ExecStart=/home/pi/wyoming-openwakeword/script/run --uri 'tcp://127.0.0.1:10400' --custom-model-dir /home/pi/wake_models_custom --preload-model 'hey_rowan' --preload-model 'oye_rowan'
-WorkingDirectory=/home/pi/wyoming-openwakeword
+ExecStart=/home/pi/oww-orig/bin/python /home/pi/oww_wyoming.py \
+    --uri 'tcp://127.0.0.1:10400' \
+    --custom-model-dir /home/pi/wake_models_custom \
+    --preload-model 'hey_rowan' \
+    --preload-model 'oye_rowan' \
+    --threshold 0.5 \
+    --trigger-level 1
+WorkingDirectory=/home/pi
 Restart=always
 RestartSec=1
 [Install]

@@ -100,6 +100,12 @@ Right in front of the bungalow. Room for two cars.
 
 Quiet hours are 10:00 PM to 8:00 AM. No parties, no events. Cliffside is a private home. The calm is the product.
 
+## Where Things Are Kept
+
+First aid kit: in the bathroom, under the sink, in the grey tote.
+
+Towels: in the living room closet behind the couch, next to the bathroom.
+
 ## Hot Tub
 
 It's a 2-person Hot Spring Hot Spot TX with solid jets, tucked behind the privacy wall on the deck rather than out at the point. The metal-and-cedar screening closes you off from the valley side, the road, and the neighbors. Stars overhead, mountain air, but the experience is privacy first — different room, different mood than the view.

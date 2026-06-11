@@ -304,7 +304,7 @@ automation:
         to: unavailable
         for: "00:05:00"
     actions:
-      - action: notify.mobile_app_mark_s_phone
+      - action: notify.mobile_app_marks_phone
         continue_on_error: true
         data:
           title: Rowan satellite offline
@@ -329,7 +329,7 @@ automation:
       - trigger: event
         event_type: rowan_kb_gap
     actions:
-      - action: notify.mobile_app_mark_s_phone
+      - action: notify.mobile_app_marks_phone
         continue_on_error: true
         data:
           title: Rowan couldn't answer a guest
@@ -364,7 +364,7 @@ automation:
       - trigger: event
         event_type: rowan_host_message
     actions:
-      - action: notify.mobile_app_mark_s_phone
+      - action: notify.mobile_app_marks_phone
         continue_on_error: true
         data:
           title: Message from the bungalow
@@ -384,7 +384,7 @@ automation:
         above: 85
         for: "01:00:00"
     actions:
-      - action: notify.mobile_app_mark_s_phone
+      - action: notify.mobile_app_marks_phone
         continue_on_error: true
         data:
           title: Rowan server disk almost full
@@ -424,7 +424,7 @@ automation:
           - condition: template
             value_template: "{{ selftest.returncode != 0 }}"
         then:
-          - action: notify.mobile_app_mark_s_phone
+          - action: notify.mobile_app_marks_phone
             continue_on_error: true
             data:
               title: Rowan self-test FAILED
@@ -504,7 +504,7 @@ automation:
       - action: input_button.press
         target:
           entity_id: input_button.rowan_new_guest
-      - action: notify.mobile_app_mark_s_phone
+      - action: notify.mobile_app_marks_phone
         continue_on_error: true
         data:
           title: Rowan reset for the next guest

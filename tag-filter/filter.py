@@ -1,14 +1,38 @@
-"""Wyoming TTS proxy that strips Rowan's control tags before speech.
+"""Wyoming TTS proxy: strips Rowan's control tags AND adapts Home Assistant's
+streaming TTS to this Kokoro build.
 
-Sits between Home Assistant and kokoro-wyoming. Intercepts `synthesize`
-events, removes [GUEST_SUMMARY: ...] and [OPT_OUT: ...] tags from the text,
-appends them to /data/tags.log, and fires Home Assistant events
-(rowan_guest_summary / rowan_opt_out) so automations can consume them.
-Everything else passes through untouched.
+Sits between Home Assistant and kokoro-wyoming.
 
-Also rewrites the upstream `info` event to disable synthesize streaming,
-so tags always arrive in a single synthesize event and can't be split
-across chunks.
+Streaming adapter
+-----------------
+HA streams an LLM reply as: SynthesizeStart, SynthesizeChunk* (text deltas),
+Synthesize(full text, for backwards-compat), SynthesizeStop. This Kokoro build
+only understands a single full-text `Synthesize` event, so we advertise streaming
+support to HA, buffer the incoming text, and emit ONE full `Synthesize` per
+completed SENTENCE to Kokoro as soon as it is ready. That lets audio start ~1.5s
+in instead of after the whole reply finishes generating + synthesizing.
+
+Kokoro answers each per-sentence Synthesize with its own (AudioStart, AudioChunk*,
+AudioStop) sequence. We reframe those into the single (AudioStart, AudioChunk*,
+SynthesizeStopped) stream HA expects: forward the first AudioStart only, forward
+every AudioChunk, drop intermediate AudioStarts/AudioStops, and emit one
+SynthesizeStopped once HA has finished sending text AND every sentence's audio
+has been received.
+
+Tag / markdown handling
+-----------------------
+[GUEST_SUMMARY: ...] etc. and markdown are stripped per emitted sentence. A flush
+is NEVER made past an unclosed '[', so a control tag can't be split across
+Synthesize calls. Stripped tags are logged to /data/tags.log and fired as HA
+events (rowan_guest_summary / rowan_opt_out / ...).
+
+Non-streaming path
+------------------
+A bare `Synthesize` with no preceding `SynthesizeStart` (e.g. announce) is handled
+the old way: strip tags+markdown, forward a single Synthesize, and pass Kokoro's
+audio through unchanged (including AudioStop).
+
+Also rewrites the upstream `info` event to advertise supports_synthesize_streaming.
 """
 import asyncio
 import json
@@ -18,7 +42,15 @@ import time
 import urllib.request
 from pathlib import Path
 
+from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.event import async_read_event, async_write_event
+from wyoming.tts import (
+    Synthesize,
+    SynthesizeChunk,
+    SynthesizeStart,
+    SynthesizeStop,
+    SynthesizeStopped,
+)
 
 LISTEN_HOST, LISTEN_PORT = "0.0.0.0", 10210
 UPSTREAM_HOST, UPSTREAM_PORT = "kokoro-wyoming", 10210
@@ -27,6 +59,10 @@ TOKEN_FILE = Path("/ha_token")
 LOG_FILE = Path("/data/tags.log")
 
 TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT|MORNING_GREETING|LANGUAGE|KB_GAP|HOST_MESSAGE)\s*:\s*([^\]\[]*?)\s*\]", re.I)
+
+# Sentence end: .!? (+ optional closing quote/bracket) followed by whitespace.
+# Requiring a trailing space avoids splitting "10 a.m." or "8.5" mid-token.
+SENT_BOUNDARY = re.compile(r"[.!?]+[\"')\]]*\s")
 
 EVENT_FOR_TAG = {
     "GUEST_SUMMARY": "rowan_guest_summary",
@@ -84,52 +120,165 @@ def strip_markdown(text: str) -> str:
     return text
 
 
-def clean_text(text: str) -> tuple[str, list[tuple[str, str]]]:
+def clean_segment(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Strip control tags + markdown. Returns (cleaned, tags); cleaned may be ''."""
     tags = TAG_RE.findall(text)
     cleaned = TAG_RE.sub(" ", text)
     cleaned = strip_markdown(cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, tags
+
+
+def clean_text(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Non-streaming clean: like clean_segment but never returns empty text."""
+    cleaned, tags = clean_segment(text)
     return cleaned or "Okay.", tags
 
 
-async def filter_event(ev):
-    """Strip tags from text-bearing synthesize events; record what was stripped."""
-    text = ev.data.get("text") if ev.data else None
-    if not text:
-        return ev
-    cleaned, tags = clean_text(text)
-    if tags:
-        log.info("stripped %s from %r", [f"{n}:{v}" for n, v in tags], text[:120])
-        asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, tags)
-    # Always apply the cleaned text: clean_text strips BOTH control tags and
-    # markdown, so markdown-only replies (no tag) must be cleaned too. Previously
-    # this was gated on `if tags:`, so replies like the WiFi password
-    # ("**Ahhwhataview!**") reached Kokoro with markdown and were read aloud as
-    # "asterisk asterisk".
-    ev.data["text"] = cleaned
-    return ev
+def next_flush(buf: str) -> tuple[str, str]:
+    """Split buf at the last complete sentence boundary, never flushing past an
+    unclosed '['. Returns (emit, remaining); emit is '' if nothing is ready."""
+    open_i = buf.rfind("[")
+    close_i = buf.rfind("]")
+    safe_end = open_i if open_i > close_i else len(buf)  # hold an in-flight tag
+    last = 0
+    for m in SENT_BOUNDARY.finditer(buf, 0, safe_end):
+        last = m.end()
+    if last == 0:
+        return "", buf
+    return buf[:last], buf[last:]
 
 
-async def pump_client_to_upstream(reader, up_writer):
+class Session:
+    """Per-connection state. One HA TTS request == one connection."""
+
+    def __init__(self, up_writer, client_writer):
+        self.up = up_writer
+        self.client = client_writer
+        self.streaming = False        # True once SynthesizeStart seen
+        self.voice = None
+        self.buf = ""
+        self.got_text = False         # any SynthesizeChunk seen this session
+        self.synth_sent = 0           # Synthesize events sent upstream
+        self.audio_stops = 0          # AudioStop events received from upstream
+        self.ha_done = False          # SynthesizeStop received from HA
+        self.first_audio_sent = False
+        self.stopped_sent = False
+        self.tags: list[tuple[str, str]] = []
+        self.lock = asyncio.Lock()
+        self.done = asyncio.Event()
+
+    async def _send_synth(self, text: str) -> None:
+        await async_write_event(Synthesize(text=text, voice=self.voice).event(), self.up)
+        self.synth_sent += 1
+
+    async def feed(self, text: str) -> None:
+        """Add text and emit any complete, tag-safe sentences."""
+        self.buf += text
+        while True:
+            emit, self.buf = next_flush(self.buf)
+            if not emit:
+                break
+            cleaned, tags = clean_segment(emit)
+            if tags:
+                self.tags.extend(tags)
+            if cleaned.strip():
+                await self._send_synth(cleaned)
+
+    async def finalize(self) -> None:
+        """HA finished sending text: flush remainder, fire tags, maybe finish."""
+        emit, self.buf = self.buf, ""
+        if emit.strip():
+            cleaned, tags = clean_segment(emit)
+            if tags:
+                self.tags.extend(tags)
+            if cleaned.strip():
+                await self._send_synth(cleaned)
+        if self.synth_sent == 0:  # reply was empty / tags-only
+            await self._send_synth("Okay.")
+        if self.streaming:
+            log.info("stream end: emitted %d sentence(s) to Kokoro", self.synth_sent)
+        self.ha_done = True
+        if self.tags:
+            log.info("stripped %s", [f"{n}:{v}" for n, v in self.tags])
+            asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, list(self.tags))
+        await self.maybe_finish()
+
+    async def maybe_finish(self) -> None:
+        async with self.lock:
+            if self.ha_done and not self.stopped_sent and self.audio_stops >= self.synth_sent:
+                self.stopped_sent = True
+                await async_write_event(SynthesizeStopped().event(), self.client)
+                self.done.set()
+
+
+async def pump_client_to_upstream(reader, sess: Session) -> None:
     while True:
         ev = await async_read_event(reader)
         if ev is None:
             break
-        if ev.type in ("synthesize", "synthesize-chunk"):
-            ev = await filter_event(ev)
-        await async_write_event(ev, up_writer)
+        if SynthesizeStart.is_type(ev.type):
+            sess.streaming = True
+            sess.voice = SynthesizeStart.from_event(ev).voice
+            log.info("stream start (HA is streaming text to TTS)")
+            continue  # Kokoro doesn't understand start/chunk/stop; swallow
+        if SynthesizeChunk.is_type(ev.type):
+            sess.got_text = True
+            await sess.feed(SynthesizeChunk.from_event(ev).text)
+            continue
+        if SynthesizeStop.is_type(ev.type):
+            await sess.finalize()
+            continue
+        if Synthesize.is_type(ev.type):
+            s = Synthesize.from_event(ev)
+            if sess.streaming:
+                # Backwards-compat duplicate of already-streamed text -> drop,
+                # unless no chunks ever arrived (then this IS the content).
+                if sess.got_text:
+                    continue
+                sess.voice = s.voice
+                await sess.feed(s.text)
+                continue
+            # Non-streaming single-shot path (e.g. announce).
+            sess.voice = s.voice
+            cleaned, tags = clean_text(s.text)
+            if tags:
+                log.info("stripped %s from %r", [f"{n}:{v}" for n, v in tags], s.text[:120])
+                asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, tags)
+            await async_write_event(Synthesize(text=cleaned, voice=s.voice).event(), sess.up)
+            sess.synth_sent += 1
+            continue
+        await async_write_event(ev, sess.up)  # describe / anything else
 
 
-async def pump_upstream_to_client(up_reader, writer):
+async def pump_upstream_to_client(up_reader, sess: Session) -> None:
     while True:
         ev = await async_read_event(up_reader)
         if ev is None:
             break
         if ev.type == "info" and ev.data:
             for tts in ev.data.get("tts", []):
-                tts["supports_synthesize_streaming"] = False
-        await async_write_event(ev, writer)
+                tts["supports_synthesize_streaming"] = True
+            await async_write_event(ev, sess.client)
+            continue
+        if not sess.streaming:
+            await async_write_event(ev, sess.client)  # passthrough incl. AudioStop
+            continue
+        # Streaming: reframe per-sentence audio into one continuous stream.
+        if AudioStart.is_type(ev.type):
+            if not sess.first_audio_sent:
+                sess.first_audio_sent = True
+                await async_write_event(ev, sess.client)
+            continue  # drop subsequent headers
+        if AudioChunk.is_type(ev.type):
+            await async_write_event(ev, sess.client)
+            continue
+        if AudioStop.is_type(ev.type):
+            sess.audio_stops += 1
+            await sess.maybe_finish()
+            continue
+        # ignore anything else in streaming mode
 
 
 async def handle_client(reader, writer):
@@ -140,18 +289,21 @@ async def handle_client(reader, writer):
         log.error("upstream %s:%s unavailable: %s", UPSTREAM_HOST, UPSTREAM_PORT, err)
         writer.close()
         return
+    sess = Session(up_writer, writer)
     tasks = [
-        asyncio.create_task(pump_client_to_upstream(reader, up_writer)),
-        asyncio.create_task(pump_upstream_to_client(up_reader, writer)),
+        asyncio.create_task(pump_client_to_upstream(reader, sess)),
+        asyncio.create_task(pump_upstream_to_client(up_reader, sess)),
     ]
+    done_waiter = asyncio.create_task(sess.done.wait())
     try:
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
+        await asyncio.wait([*tasks, done_waiter], return_when=asyncio.FIRST_COMPLETED)
+        for t in (*tasks, done_waiter):
             t.cancel()
-        for t in done:
-            exc = t.exception()
-            if exc and not isinstance(exc, (ConnectionResetError, BrokenPipeError)):
-                log.error("pump error from %s: %r", peer, exc)
+        for t in tasks:
+            if t.done() and not t.cancelled():
+                exc = t.exception()
+                if exc and not isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+                    log.error("pump error from %s: %r", peer, exc)
     finally:
         for w in (writer, up_writer):
             try:
@@ -163,9 +315,10 @@ async def handle_client(reader, writer):
 async def main():
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     server = await asyncio.start_server(handle_client, LISTEN_HOST, LISTEN_PORT)
-    log.info("tag filter listening on %s:%s -> %s:%s", LISTEN_HOST, LISTEN_PORT, UPSTREAM_HOST, UPSTREAM_PORT)
+    log.info("tag filter listening on %s:%s -> %s:%s (streaming adapter)", LISTEN_HOST, LISTEN_PORT, UPSTREAM_HOST, UPSTREAM_PORT)
     async with server:
         await server.serve_forever()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

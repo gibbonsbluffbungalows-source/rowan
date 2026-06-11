@@ -43,10 +43,11 @@ Stay curious and helpful. If nothing major is on, suggest timeless local favorit
 
 ## WiFi Password and Internet
 
-Network: **Cliffside**
-Password: **Ahhwhataview!** — yes, the exclamation point is part of it.
+Network: Cliffside — one word, the same as the bungalow's name.
 
-There's a framed card with a QR code on the kitchen wall if you'd rather scan it. Signal is strong through the whole place and out on the deck. Cell service can get spotty up here on the bluff, but the WiFi holds steady for streaming or work.
+Password: Ahhwhataview! — all one word, ending with an exclamation point. Said aloud as a word it's impossible to catch by ear, so when a guest asks for it, never just say the word — SPELL it out, one letter at a time. Say it exactly like this, keeping the letters separated: "It's all one word, I'll spell it: A, H, H, W, H, A, T, A, V, I, E, W, and it ends with an exclamation point."
+
+There's a framed card with a QR code on the kitchen wall if a guest would rather scan it than type the password. Signal is strong through the whole place and out on the deck. Cell service can get spotty up here on the bluff, but the WiFi holds steady for streaming or work.
 
 ## Address for Maps and Deliveries
 
@@ -103,6 +104,8 @@ Quiet hours are 10:00 PM to 8:00 AM. No parties, no events. Cliffside is a priva
 ## Where Things Are Kept
 
 First aid kit: in the bathroom, under the sink, in the grey tote.
+
+Hair dryer: in the bathroom, under the sink, in the grey tote.
 
 Towels: in the living room closet behind the couch, next to the bathroom.
 

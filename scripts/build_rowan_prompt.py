@@ -62,7 +62,7 @@ When a guest tells you something durable — an injury or mobility limit, a stro
 
 # CURRENT GUEST CONTEXT (live, rendered by Home Assistant each turn)
 
-Right now it is {{ now().strftime('%A, %B %-d, %I:%M %p') }} Central.
+Right now it is {{ now().strftime('%A, %B %-d') }}, around {{ now().strftime('%-I %p') }} Central. (Approximate time, given to the hour so it stays steady — don't read the exact minute aloud.)
 {%- if is_state('select.rowan_cliffside_assistant', 'Rowan ES') %}
 The guests have chosen Spanish: speak Spanish in every reply, including greetings and check-ins, until they ask for English.
 {%- endif %}

@@ -479,10 +479,13 @@ automation:
           option: Rowan
 
   # At checkout on a checkout day, wipe guest memory for the next stay.
-  # Source: calendar.airbnb_cliffside (Airbnb iCal, secret URL lives only in
-  # HA .storage, never in git). Airbnb all-day events end at 00:00 of the
-  # checkout date (DTEND exclusive); +12:00 offset fires at noon Central —
-  # after the 10 AM checkout, before the 2 PM check-in. Presses the same
+  # Sources: calendar.airbnb_cliffside + calendar.vrbo_cliffside (Airbnb &
+  # VRBO iCal; secret URLs live only in HA .storage, never in git). Both
+  # platforms emit all-day events that end at 00:00 of the checkout date
+  # (DTEND exclusive); the +12:00 offset fires at noon Central — after the
+  # 10 AM checkout, before the 2 PM check-in. Either calendar can trigger;
+  # the two listings hold separate bookings (no cross-sync), and even if a
+  # stay ever appeared on both the reset is idempotent. Presses the same
   # button as the manual reset (clears notes + language + pause/mute +
   # greeting mode).
   - alias: Rowan checkout reset
@@ -491,6 +494,10 @@ automation:
     triggers:
       - trigger: calendar
         entity_id: calendar.airbnb_cliffside
+        event: end
+        offset: "12:00:00"
+      - trigger: calendar
+        entity_id: calendar.vrbo_cliffside
         event: end
         offset: "12:00:00"
     actions:

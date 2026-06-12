@@ -40,6 +40,7 @@ import logging
 import re
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
@@ -57,6 +58,7 @@ UPSTREAM_HOST, UPSTREAM_PORT = "kokoro-wyoming", 10210
 HA_URL = "http://host.docker.internal:8123"
 TOKEN_FILE = Path("/ha_token")
 LOG_FILE = Path("/data/tags.log")
+FEEDBACK_FILE = Path("/data/feedback.jsonl")
 
 TAG_RE = re.compile(r"\[\s*(GUEST_SUMMARY|OPT_OUT|MORNING_GREETING|LANGUAGE|KB_GAP|HOST_MESSAGE)\s*:\s*([^\]\[]*?)\s*\]", re.I)
 
@@ -99,6 +101,23 @@ def record_tags_blocking(tags: list[tuple[str, str]]) -> None:
                 log.info("fired %s (%s): HTTP %s", event_type, value, resp.status)
         except Exception as err:
             log.error("failed to fire %s: %s", event_type, err)
+
+
+def record_reply_blocking(text: str, voice) -> None:
+    """Append one spoken reply to the feedback log for later by-ear tone review.
+    Best-effort: any failure here must never affect TTS."""
+    try:
+        rec = {
+            "id": uuid.uuid4().hex[:8],
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "text": text,
+            "voice": getattr(voice, "name", None) if voice else None,
+            "language": getattr(voice, "language", None) if voice else None,
+        }
+        with FEEDBACK_FILE.open("a") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as err:
+        log.error("feedback log failed: %s", err)
 
 
 def strip_markdown(text: str) -> str:
@@ -166,10 +185,12 @@ class Session:
         self.first_audio_sent = False
         self.stopped_sent = False
         self.tags: list[tuple[str, str]] = []
+        self.spoken_parts: list[str] = []
         self.lock = asyncio.Lock()
         self.done = asyncio.Event()
 
     async def _send_synth(self, text: str) -> None:
+        self.spoken_parts.append(text)
         await async_write_event(Synthesize(text=text, voice=self.voice).event(), self.up)
         self.synth_sent += 1
 
@@ -203,6 +224,9 @@ class Session:
         if self.tags:
             log.info("stripped %s", [f"{n}:{v}" for n, v in self.tags])
             asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, list(self.tags))
+        full = " ".join(p.strip() for p in self.spoken_parts if p and p.strip()).strip()
+        if full:
+            asyncio.get_running_loop().run_in_executor(None, record_reply_blocking, full, self.voice)
         await self.maybe_finish()
 
     async def maybe_finish(self) -> None:
@@ -248,6 +272,7 @@ async def pump_client_to_upstream(reader, sess: Session) -> None:
                 asyncio.get_running_loop().run_in_executor(None, record_tags_blocking, tags)
             await async_write_event(Synthesize(text=cleaned, voice=s.voice).event(), sess.up)
             sess.synth_sent += 1
+            asyncio.get_running_loop().run_in_executor(None, record_reply_blocking, cleaned, s.voice)
             continue
         await async_write_event(ev, sess.up)  # describe / anything else
 

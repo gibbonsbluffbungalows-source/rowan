@@ -6,3 +6,4 @@ whisper-data/
 kokoro-data/
 tag-filter-data/
 whisper-gpu-data/
+.elevenlabs_key

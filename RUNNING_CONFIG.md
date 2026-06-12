@@ -64,6 +64,28 @@ Hard-won prompt lessons: this 14B needs REQUIRED-strength wording AND a worked
 example for behaviors that fight its instincts (tag emission, refusing to guess
 item locations).
 
+## Reply length cap (num_predict) — added 2026-06-12
+
+`qwen2.5:14b` has `PARAMETER num_predict 100` baked in to cap reply length
+(~30s max speech, down from ~50s monologues). HA's Ollama integration only
+forwards `num_ctx`, never `num_predict` (entity.py), so a model-level Modelfile
+param is the ONLY mechanical output cap — prompt rules alone do not hold this
+model to length. Set in place (overwrites the tag, reuses the same blobs):
+`printf "FROM qwen2.5:14b\nPARAMETER num_predict 100\n" > /tmp/m && ollama create qwen2.5:14b -f /tmp/m`
+(run inside the `ollama` container), then `ollama stop qwen2.5:14b` to force a
+reload with the cap. Lives in ollama-data, NOT git.
+
+- **Revert:** original backed up as `qwen2.5-14b-orig` →
+  `docker exec ollama ollama cp qwen2.5-14b-orig qwen2.5:14b && docker exec ollama ollama stop qwen2.5:14b`.
+- **100 is about the floor.** Trailing control tags (HOST_MESSAGE, GUEST_SUMMARY,
+  KB_GAP, LANGUAGE) are emitted at the END of the reply and must fit under the
+  cap. Verified they survive at 100 (a 70-word reply + GUEST_SUMMARY just fit);
+  tightening further risks clipping them and silently breaking the router/memory.
+- **Caps length only, NOT decisiveness.** The model still lists two options and
+  ends on "which one sounds better?" — the cap just truncates it. Making Rowan
+  pick one / stop asking back is a steerability limit of this 14B; the real fix
+  is a more obedient model (Gemma 3 12B / smaller) + RAG, not a tighter cap.
+
 ## Weather (three-level preference in sensor.rowan_weather_brief)
 
 1. **Local push** `sensor.ws_2902_gibbonsbluff_*` — station → wu-bridge → HA

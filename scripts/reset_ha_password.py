@@ -1,9 +1,35 @@
 """Reset the HA owner account's password via the admin websocket API.
-Run inside the homeassistant container. Token at /config/.self_test_token."""
-import asyncio, aiohttp, sys
+Run inside the homeassistant container. Token at /config/.self_test_token.
+
+Usage:
+    python3 reset_ha_password.py            # prompts for the new password (not echoed)
+    python3 reset_ha_password.py --stdin    # reads the new password from stdin
+
+There is deliberately NO default password. Passing the password as a plain
+command-line argument is not supported because it leaks into shell history
+and the process list.
+"""
+import asyncio, aiohttp, getpass, sys
+
+MIN_LEN = 16
+
+
+def read_new_password() -> str:
+    if "--stdin" in sys.argv[1:]:
+        pw = sys.stdin.readline().rstrip("\n")
+    else:
+        if not sys.stdin.isatty():
+            sys.exit("No TTY: use --stdin to pipe the new password in.")
+        pw = getpass.getpass("New HA owner password: ")
+        if pw != getpass.getpass("Repeat new password: "):
+            sys.exit("Passwords do not match; nothing changed.")
+    if len(pw) < MIN_LEN:
+        sys.exit(f"Refusing: password must be at least {MIN_LEN} characters.")
+    return pw
+
 
 TOKEN = open("/config/.self_test_token").read().strip()
-NEWPW = sys.argv[1] if len(sys.argv) > 1 else "REDACTED-OLD-HA-PASSWORD"
+NEWPW = read_new_password()
 
 
 async def main():
